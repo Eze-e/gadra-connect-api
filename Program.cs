@@ -373,7 +373,7 @@ admin.MapGet("/pending", async (AppDb db) =>
     var users = await db.Users.Where(u => u.Status != "active")
         .Select(u => new { u.Email, u.FullName, u.Role, u.Status }).ToListAsync();
     var withInterest = await db.Interests.Select(i => i.RequestId).Distinct().ToListAsync();
-    var reqs = await RequestDtos(db, db.Requests.Where(r => r.Status == "open" && withInterest.Contains(r.Id)), null);
+        var reqs = await RequestDtos(db, db.Requests.Where(r => r.Status == "open" && withInterest.Contains(r.Id)), null, true);
     return Results.Ok(new { users, requests = reqs });
 });
 
