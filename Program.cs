@@ -112,24 +112,51 @@ async Task<(UserEntity? U, IResult? Err)> Need(HttpContext ctx, AppDb db, string
     return (u, null);
 }
 
-async Task<List<object>> RequestDtos(AppDb db, IQueryable<RequestEntity> query, string? viewerTutorEmail)
+object? TutorInfo(List<UserEntity> tutors, string? email)
+{
+    var t = tutors.FirstOrDefault(x => x.Email == email);
+    if (t is null) return null;
+    return new
+    {
+        fullName = t.FullName,
+        subjects = t.Subjects ?? "",
+        grades = t.Grades ?? "",
+        availability = t.Availability ?? "",
+        bio = t.Bio ?? ""
+    };
+}
+
+async Task<List<object>> RequestDtos(AppDb db, IQueryable<RequestEntity> query, string? viewerTutorEmail, bool admin = false)
 {
     var list = await query.OrderByDescending(r => r.CreatedAt).ToListAsync();
     var ids = list.Select(r => r.Id).ToList();
     var interests = await db.Interests.Where(i => ids.Contains(i.RequestId)).ToListAsync();
-    return list.Select(r => (object)new
+    var tutorEmails = list.Where(r => r.MatchedTutorEmail != null)
+        .Select(r => r.MatchedTutorEmail!).Distinct().ToList();
+    var tutors = await db.Users.Where(u => tutorEmails.Contains(u.Email)).ToListAsync();
+    var isTutorView = viewerTutorEmail is not null;
+
+    return list.Select(r =>
     {
-        id = r.Id,
-        learnerName = r.LearnerName,
-        // Tutors only see a learner's email once matched with them.
-        learnerEmail = viewerTutorEmail is not null && r.MatchedTutorEmail != viewerTutorEmail ? "" : r.LearnerEmail,
-        subject = r.Subject, grade = r.Grade, availability = r.Availability, goals = r.Goals,
-        status = r.Status,
-        interestedTutors = interests.Where(i => i.RequestId == r.Id).Select(i => i.TutorEmail).ToList(),
-        matchedTutorEmail = r.MatchedTutorEmail
+        var emails = interests.Where(i => i.RequestId == r.Id).Select(i => i.TutorEmail).ToList();
+        return (object)new
+        {
+            id = r.Id,
+            learnerName = r.LearnerName,
+            // Tutors only see a learner's email once matched with them.
+            learnerEmail = isTutorView && r.MatchedTutorEmail != viewerTutorEmail ? "" : r.LearnerEmail,
+            subject = r.Subject, grade = r.Grade, availability = r.Availability, goals = r.Goals,
+            status = r.Status,
+            // Admin sees all; a tutor sees only their own interest; a learner sees a count only.
+            interestedTutors = admin ? emails
+                : isTutorView ? emails.Where(e => e == viewerTutorEmail).ToList()
+                : emails.Select(_ => "tutor").ToList(),
+            matchedTutorEmail = admin || isTutorView ? r.MatchedTutorEmail : null,
+            // Learners see the matched tutor's expertise, never their email.
+            matchedTutor = isTutorView ? null : TutorInfo(tutors, r.MatchedTutorEmail)
+        };
     }).ToList();
 }
-
 object SessionDto(SessionEntity s) => new
 {
     id = s.Id, requestId = s.RequestId, subject = s.Subject,
